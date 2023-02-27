@@ -26,14 +26,15 @@ int start_app(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    char node[NI_MAXHOST] = {0};
-    int res = getnameinfo(&addr.sa, sizeof(addr), node, sizeof(node), NULL, 0, NI_NAMEREQD);
+    char domain_name[NI_MAXHOST] = {0};
+    int res = getnameinfo(&addr.sa, sizeof(addr), domain_name, sizeof(domain_name), NULL, 0, NI_NAMEREQD);
 
     if (res) {
         fprintf(stderr, "%s: %s\n", argv[1], gai_strerror(res));
         return EXIT_FAILURE;
     }
 
-    puts(node);
+    printf("Reverse DNS information for IP address %s:\n", argv[1]);
+    printf("Domain name: %s\n", domain_name);
     return EXIT_SUCCESS;
 }
