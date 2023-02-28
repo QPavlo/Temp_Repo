@@ -1,19 +1,28 @@
 #include "reverse_dns.h"
 
-int convertIPv4(struct sockaddr_in *sa, const char *name) {
-    return inet_pton(sa->sin_family = AF_INET, name, &sa->sin_addr);
+
+const char *STATUS_DETAILS[] = {"Success",
+                                "Wrong number of arguments\nUsage: %s [IP]\nE.g. ./reverse_dns 10.32.129.77\n",
+                                "Invalid IP address",
+                                "getnameinfo error"};
+
+int convert_ipv4(struct sockaddr_in *sa4, const char *ip_addr_str) {
+    return inet_pton(sa4->sin_family = AF_INET, ip_addr_str, &sa4->sin_addr);
 }
 
-int convertIPv6(struct sockaddr_in6 *sa, const char *name) {
-    return inet_pton(sa->sin6_family = AF_INET6, name, &sa->sin6_addr);
+int convert_ipv6(struct sockaddr_in6 *sa6, const char *ip_addr_str) {
+    return inet_pton(sa6->sin6_family = AF_INET6, ip_addr_str, &sa6->sin6_addr);
 }
 
+void log_error_info(status reverse_dns_status) {
+    fprintf(stderr, "status: %s\n", STATUS_DETAILS[reverse_dns_status]);
+}
 
-int start_app(int argc, char **argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s [IP]\nE.g. %s 10.32.129.77\n", argv[0], argv[0]);
-        return EXIT_FAILURE;
-    }
+void log_error_info_str(const char *error_str) {
+    fprintf(stderr, "error: %s\n", error_str);
+}
+
+int reverse_dns(const char *ip_addr_str, char *domain_name_str, uint32_t domain_name_length) {
 
     union {
         struct sockaddr sa;
@@ -21,20 +30,17 @@ int start_app(int argc, char **argv) {
         struct sockaddr_in6 s6;
     } addr;
 
-    if (convertIPv4(&addr.s4, argv[1]) != 1 && convertIPv6(&addr.s6, argv[1]) != 1) {
-        fprintf(stderr, "%s: not a valid IP address.\n", argv[1]);
-        return EXIT_FAILURE;
+    int res;
+
+    if (convert_ipv4(&addr.s4, ip_addr_str) != 1 && convert_ipv6(&addr.s6, ip_addr_str) != 1) {
+        return STATUS_INV_IP;
     }
 
-    char domain_name[NI_MAXHOST] = {0};
-    int res = getnameinfo(&addr.sa, sizeof(addr), domain_name, sizeof(domain_name), NULL, 0, NI_NAMEREQD);
-
+    res = getnameinfo(&addr.sa, sizeof(addr), domain_name_str, domain_name_length, NULL, 0, NI_NAMEREQD);
     if (res) {
-        fprintf(stderr, "%s: %s\n", argv[1], gai_strerror(res));
-        return EXIT_FAILURE;
+        strcpy(domain_name_str, gai_strerror(res));
+        return STATUS_GETNAMEINFO_ERROR;
     }
 
-    printf("Reverse DNS information for IP address %s:\n", argv[1]);
-    printf("Domain name: %s\n", domain_name);
-    return EXIT_SUCCESS;
+    return STATUS_SUCCESS;
 }
