@@ -2,11 +2,12 @@
 
 #define BUFFER_SIZE 30000
 
-
 int create_server(struct tcp_server *server, const char *ip_address, int port) {
-    inet_pton(sa->sin_family = AF_INET, ip_addr_str, &sa->sin_addr);
     server->port = port;
-    server->socket_address_len = sizeof(server->addr);
+    server->socket_address_len = sizeof(server->sa);
+    
+    server->sa.sin_port = htons(port);
+    inet_pton(server->sa.sin_family = AF_INET, ip_address, &server->sa.sin_addr);
     strcpy(server->server_message, buildResponse());
 
     if (start_server(server) != 0) {
@@ -18,13 +19,13 @@ int create_server(struct tcp_server *server, const char *ip_address, int port) {
 
 
 int start_server(struct tcp_server *server) {
-    server->serv_socket = socket(server->sa.sa_family, SOCK_STREAM, 0);
+    server->serv_socket = socket(server->sa.sin_family, SOCK_STREAM, 0);
     if (server->serv_socket < 0) {
         printf("\n\nCannot create socket\n\n");
         return 1;
     }
 
-    if (bind(server->serv_socket, (struct sockaddr *) &server->addr, server->socket_address_len) < 0) {
+    if (bind(server->serv_socket, (struct sockaddr *) &server->sa, server->socket_address_len) < 0) {
         printf("Cannot connect socket to address");
         return 1;
     }
@@ -33,12 +34,12 @@ int start_server(struct tcp_server *server) {
 }
 
 void start_listen(struct tcp_server *server) {
-    if (listen(server->serv_socket, 200) < 0) {
+    if (listen(server->serv_socket, 20) < 0) {
         printf("Socket listen failed");
     }
 
     char buff[400] = {0};
-    inet_ntop(server->sa.sa_family, &server->sa.sin_addr, buff, server->socket_address_len);
+    inet_ntop(server->sa.sin_family, &server->sa.sin_addr, buff, server->socket_address_len);
     printf("\n Listening on ADDRESS: %s PORT:  %d", buff, server->port);
 
     long bytesReceived;
@@ -64,11 +65,11 @@ void start_listen(struct tcp_server *server) {
 }
 
 int accept_connection(struct tcp_server *server) {
-    int client_socket = accept(server->serv_socket, (struct sockaddr *) &server->addr,
+    int client_socket = accept(server->serv_socket, (struct sockaddr *) &server->sa,
                                &server->socket_address_len);
     if (client_socket < 0) {
         char buff[400] = {0};
-        inet_ntop(server->addr.sa.sa_family, server->addr.sa.sa_data, buff, server->socket_address_len);
+        inet_ntop(server->sa.sin_family, &server->sa.sin_addr, buff, server->socket_address_len);
         printf("\n Server failed to accept incoming connection from ADDRESS: %s, PORT %d",
                buff,
                server->port);
