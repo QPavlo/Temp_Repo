@@ -4,183 +4,125 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <netinet/in.h>
-#include <fcntl.h>
-#include <pthread.h>
+#include <arpa/inet.h>
 #include <sys/epoll.h>
 
 #define MAX_EVENTS 10
-#define MAX_CLIENTS 10
+#define PORT 5000
 
-typedef struct {
-    int fd;
-    struct sockaddr_in addr;
-} client_info;
+int main() {
+    int server_socket, new_socket, epoll_fd;
+    struct sockaddr_in address;
+    struct epoll_event event, events[MAX_EVENTS];
 
-pthread_mutex_t mutex;
-
-void *handle_client(void *arg);
-
-
-int main(int argc, char *argv[]) {
-    int listen_fd, conn_fd, epoll_fd, nready, i;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len = sizeof(client_addr);
-    struct epoll_event ev, events[MAX_EVENTS];
-
-    // Create listening socket
-    if ((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((server_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("Socket creation failed");
         exit(EXIT_FAILURE);
     }
 
-    // Set socket options to allow reuse of address and port
-    int optval = 1;
-    if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
+    int opt = 1;
+    if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("Setsockopt failed");
         exit(EXIT_FAILURE);
     }
 
-    // Bind socket to address and port
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(8080);
-    if (bind(listen_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    if (bind(server_socket, (struct sockaddr *) &address, sizeof(address)) < 0) {
         perror("Bind failed");
         exit(EXIT_FAILURE);
     }
 
-    // Listen for incoming connections
-    if (listen(listen_fd, MAX_CLIENTS) < 0) {
+    if (listen(server_socket, 3) < 0) {
         perror("Listen failed");
         exit(EXIT_FAILURE);
     }
 
-    // Create epoll instance
     if ((epoll_fd = epoll_create1(0)) < 0) {
         perror("Epoll creation failed");
         exit(EXIT_FAILURE);
     }
 
-    // Add listening socket to epoll
-    ev.events = EPOLLIN;
-    ev.data.fd = listen_fd;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_fd, &ev) < 0) {
-        perror("Epoll_ctl failed");
+    // Add server socket to epoll
+    event.events = EPOLLIN;
+    event.data.fd = server_socket;
+
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_socket, &event) < 0) {
+        perror("Epoll_ctl add failed");
         exit(EXIT_FAILURE);
     }
 
-    // Create thread pool
-    pthread_t threads[MAX_CLIENTS];
-    int thread_count = 0;
-
-    // Event loop
     while (1) {
-        nready = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
-        if (nready < 0) {
-            perror("Epoll_wait failed");
-            exit(EXIT_FAILURE);
-        }
+        int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
 
-        // Handle events
-        for (i = 0; i < nready; i++) {
-            if (events[i].data.fd == listen_fd) {
+        for (int i = 0; i < num_events; i++) {
+            if (events[i].data.fd == server_socket) {
                 // New client connection
-                if ((conn_fd = accept(listen_fd, (struct sockaddr *) &client_addr, &client_len)) < 0) {
+                struct sockaddr_in client_addr;
+                socklen_t client_len = sizeof(client_addr);
+
+                if ((new_socket = accept(server_socket, (struct sockaddr *) &client_addr, &client_len)) < 0) {
                     perror("Accept failed");
-                    continue;
+                    exit(EXIT_FAILURE);
                 }
 
-                // Set socket to non-blocking mode
-                if (fcntl(conn_fd, F_SETFL, fcntl(conn_fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
-                    perror("Fcntl failed");
-                    close(conn_fd);
-                    continue;
+                // Add new client socket to epoll
+                event.events = EPOLLIN;
+                event.data.fd = new_socket;
+
+                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, new_socket, &event) < 0) {
+                    perror("Epoll_ctl add failed");
+                    exit(EXIT_FAILURE);
                 }
 
-                // Add client socket to epoll
-                ev.events = EPOLLIN | EPOLLET;
-                ev.data.fd = conn_fd;
-
-
-                if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &ev) < 0) {
-                    perror("Epoll_ctl failed");
-                    close(conn_fd);
-                    continue;
-                }
-
-                // Create new thread to handle client connection
-                client_info *info = malloc(sizeof(client_info));
-                info->fd = conn_fd;
-                info->addr = client_addr;
-                if (pthread_create(&threads[thread_count++], NULL, handle_client, (void *) info) != 0) {
-                    perror("Thread creation failed");
-                    close(conn_fd);
-                    free(info);
-                    continue;
-                }
-
-                if (thread_count >= MAX_CLIENTS) {
-                    thread_count = 0;
-                    printf("Maximum client limit reached. Closing listening socket.\n");
-//                    close(listen_fd);
-//                    exit(EXIT_FAILURE);
-                }
+                printf("New client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
             } else {
-                // Existing client socket has data to read
-                pthread_mutex_lock(&mutex);
-                ev = events[i];
-                conn_fd = ev.data.fd;
-                pthread_mutex_unlock(&mutex);
-                client_info *info = malloc(sizeof(client_info));
-                info->fd = conn_fd;
-                info->addr = client_addr;
-                if (pthread_create(&threads[thread_count++], NULL, handle_client, (void *) info) != 0) {
-                    perror("Thread creation failed");
-                    close(conn_fd);
-                    free(info);
-                    continue;
+                // Data received from client
+                printf("data received\n");
+                int nbytes;
+                char buffer[1024];
+                char buffer1[1024] = {"HTTP/1.1 200 OK\n"
+                                      "Date: Mon, 27 Jul 2009 12:28:53 GMT\n"
+                                      "Server: Apache/2.2.14\n"
+                                      "Last-Modified: Wed, 22 Jul 2009 19:15:56 GMT\n"
+                                      "Content-Length: 88\n"
+                                      "Content-Type: text/html\n"
+                                      "Connection: Closed\n"
+                                      "\n"
+                                      "<html>\n"
+                                      "<body>\n"
+                                      "<h1>Hello, World!</h1>\n"
+                                      "</body>\n"
+                                      "</html>"};
+
+                if ((nbytes = read(events[i].data.fd, buffer, sizeof(buffer))) <= 0) {
+                    // Client disconnected
+                    if (nbytes == 0) {
+                        printf("Client disconnected\n");
+                    } else {
+                        perror("Read error");
+                    }
+
+                    if (epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL) < 0) {
+                        perror("Epoll_ctl del failed");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    close(events[i].data.fd);
+                } else {
+                    // Print received data and echo it back to client
+//                    buffer[nbytes] = '\0';
+                    printf("Received data: %s\n", buffer);
+                    write(events[i].data.fd, buffer1, strlen(buffer1));
+                    close(events[i].data.fd);
                 }
             }
         }
     }
 
-// Cleanup
-    close(listen_fd);
-    close(epoll_fd);
     return 0;
-
-}
-
-void *handle_client(void *arg) {
-    client_info *info = (client_info *) arg;
-    int conn_fd = info->fd;
-    struct sockaddr_in client_addr = info->addr;
-    free(info);
-
-
-    char buffer[1024];
-    ssize_t nread;
-
-// Read client data
-    if ((nread = read(conn_fd, buffer, sizeof(buffer))) > 0) {
-        if (write(conn_fd, buffer, nread) < 0) {
-            perror("Write failed");
-            close(conn_fd);
-            return NULL;
-        }
-    }
-
-    if (nread == 0) {
-        printf("Client %s:%d disconnected\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-    } else {
-        perror("Read failed");
-    }
-
-// Cleanup
-    close(conn_fd);
-    return NULL;
 
 }
