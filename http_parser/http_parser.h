@@ -2,29 +2,36 @@
 #define HTTP_PARSER_HTTP_PARSER_H
 
 typedef enum Method {
-    UNSUPPORTED, GET, HEAD
+    UNSUPPORTED, GET
 } Method;
 
-typedef struct Header {
+struct http_header {
     char *name;
     char *value;
-    struct Header *next;
-} Header;
+    struct http_header *next;
+};
 
-typedef struct Request {
+struct list {
+    struct http_header *head;
+    struct http_header *last;
+};
+
+struct http_request {
     enum Method method;
-    char *path;
-    char *version;
-    struct Header *headers;
+    char path[2048];
+    char version[16];
+    struct http_header *headers;
     char *body;
-} Request;
+};
 
+struct http_request *parse_request(const char *raw);
 
-struct Request *parse_request(const char *raw);
+void free_header(struct http_header *h);
 
-void free_header(struct Header *h);
+void free_request(struct http_request *req);
 
-void free_request(struct Request *req);
+void push_back(struct http_header **head,
+               char *name, char *value);
 
 
 #endif //HTTP_PARSER_HTTP_PARSER_H
