@@ -19,6 +19,14 @@ void write_log_entry(char *time_stamp, char *method, char *uri, char *log_file_p
         exit(1);
     }
 
+    long file_size = ftell(log_file);
+    if (file_size == 0) {
+        // Write the header to the file
+        fprintf(log_file, "#Version: 1.0\n");
+//        fprintf(log_file, "#Date: %s\n", time_stamp);
+        fprintf(log_file, "#Fields: time cs-method cs-uri\n");
+    }
+
     // Write the log message to the file
     fprintf(log_file, "%s %s %s\n", time_stamp, method, uri);
 
@@ -30,7 +38,7 @@ void write_log_entry(char *time_stamp, char *method, char *uri, char *log_file_p
 void get_current_time(char *buffer, size_t buffer_size, const char *format) {
     time_t raw_time;
     struct tm *time_info;
-    char time_string[20];
+    char time_string[32];
 
     time(&raw_time);
     time_info = localtime(&raw_time);
@@ -46,7 +54,7 @@ int main(int argc, char *argv[]) {
     int addrlen = sizeof(address);
     char request_buffer[MAX_REQUEST_SIZE] = {0};
     char *response = "HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nHello world!";
-    char time_stamp[20];
+    char time_stamp[32];
     char *method;
     char *uri;
 
@@ -98,7 +106,7 @@ int main(int argc, char *argv[]) {
 
         // Get the current time
         // Get the current time
-        get_current_time(time_stamp, sizeof(time_stamp), "%d-%b-%Y %H:%M:%S %z");
+        get_current_time(time_stamp, sizeof(time_stamp), "%d-%b-%Y %H:%M:%S");
 
         // Write a log entry for the request
         write_log_entry(time_stamp, method, uri, "access.log");
